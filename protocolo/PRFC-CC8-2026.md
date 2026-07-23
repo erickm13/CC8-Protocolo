@@ -4,57 +4,51 @@
 
 | | |
 |---|---|
-| Versión del documento | `1.0.0` |
-| `protocolVersion` en los mensajes | `1.0` |
+| Versión del documento | `2.0.0` |
+| `protocolVersion` en los mensajes | `2.0` |
 | Estado | Vigente |
 | Última modificación | 2026-07-23 |
+| Reemplaza a | `1.0.x` (rejilla de casillas), incompatible |
 
 > El número de versión del documento y el valor de `protocolVersion` que viaja en
-> los mensajes **no son lo mismo**. El documento puede llegar a `1.0.7` por
-> aclaraciones de redacción mientras los mensajes siguen diciendo `"1.0"`. El
+> los mensajes **no son lo mismo**. El documento puede llegar a `2.0.7` por
+> aclaraciones de redacción mientras los mensajes siguen diciendo `"2.0"`. El
 > valor en los mensajes solo cambia cuando se rompe la compatibilidad.
 
-## Sobre este documento
+## Sobre esta versión
 
-Las secciones se citan por número: §14 (robo de bandera), §29.4 (mensaje
-`GAME_STATE`). Esa numeración es estable; si se agrega una sección nueva va al
-final, no en medio.
+La versión 1.0 describía el juego sobre una rejilla de casillas con movimiento
+tipo serpiente. **Contradecía el reglamento del curso** en la geometría, el
+movimiento, la forma de tomar y robar la bandera, y la inmunidad tras el robo.
+Esta versión reescribe el protocolo sobre el reglamento y no es compatible con la
+anterior. Las citas por sección de la 1.0 no se corresponden con las de esta.
 
-Las decisiones sobre casos que este documento no resolvía viven en
-[`../acuerdos/`](../acuerdos/) y **siempre terminan editando este archivo**. Si
-una regla está en un acuerdo pero no aquí, es un error del proceso: reportalo.
-
-Ejemplos ejecutables de mensajes y sesiones completas en
-[`../ejemplos/`](../ejemplos/). Si un ejemplo contradice este documento, gana
-este documento.
+Las secciones se citan por número: §14 (robo de la bandera), §29.5 (mensaje
+`GAME_STATE`).
 
 ---
 
 ## 1. Propósito
 
-Este documento define las reglas generales del juego, el funcionamiento del
-servidor y el protocolo de comunicación que deberán respetar todos los grupos.
+Este documento define las reglas del juego, el funcionamiento del servidor y el
+protocolo de comunicación que deberán respetar todos los proyectos del curso.
 
-Cada grupo podrá utilizar cualquier lenguaje de programación, librería, motor
+Cada proyecto podrá utilizar cualquier lenguaje de programación, librería, motor
 gráfico o interfaz, siempre que cumpla exactamente con las reglas y mensajes
-definidos en este documento.
+definidos aquí. Todos los proyectos deben poder conectarse entre sí.
 
 ## 2. Objetivo del juego
 
-Todos los jugadores compiten individualmente por una única bandera.
+Cada jugador compite de forma individual por una única bandera. Para ganar, un
+jugador debe:
 
-Para ganar, un jugador debe:
+1. Entrar al círculo central.
+2. Tomar la bandera.
+3. Salir completamente del círculo llevándola.
 
-1. Entrar al tablero.
-2. Llegar hasta la bandera.
-3. Tomarla automáticamente.
-4. Transportarla hasta cualquier borde.
-5. Salir del tablero con la bandera.
+El primer jugador que lo consiga gana la partida.
 
-La partida termina inmediatamente cuando un jugador sale del tablero con la
-bandera.
-
-Tomar la bandera no significa ganar. Es obligatorio salir con ella.
+Tomar la bandera no significa ganar. Es obligatorio salir del círculo con ella.
 
 ## 3. Arquitectura general
 
@@ -64,361 +58,383 @@ El juego utilizará una arquitectura cliente-servidor.
 - Todos los jugadores se conectarán directamente al servidor.
 - Los jugadores no se comunicarán directamente entre sí.
 - El servidor mantendrá el estado oficial del juego.
-- Los clientes únicamente enviarán solicitudes y cambios de dirección.
+- Los clientes únicamente enviarán intención de movimiento e interacción.
 - El servidor validará todas las acciones.
 
-El servidor podrá ejecutarse en el mismo programa que el cliente, mediante dos
-modos:
+## 4. Modos del proyecto
 
-- CREAR PARTIDA
-- UNIRSE A PARTIDA
+Cada proyecto deberá poder ejecutarse en dos modos.
 
-## 4. Tablero
+**Modo servidor.** Hospeda la partida, mantiene el estado oficial y **únicamente
+muestra** el juego de todos los jugadores conectados. La máquina que corre el
+servidor **no participa como jugador**: no tiene entidad en el mapa, no aparece
+en `players` y no puede tomar la bandera.
 
-El tablero será una matriz rectangular configurable.
+**Modo cliente.** Se conecta a un servidor y es el único modo en el que se juega
+desde esa máquina.
 
-Parámetros:
+Un proyecto deberá poder conectarse al servidor de cualquier otro proyecto, y su
+servidor deberá aceptar clientes de cualquier otro proyecto.
 
-- `rows`
-- `columns`
+## 5. El mapa
 
-Tamaño inicial recomendado: **20 filas × 20 columnas**.
+El mapa será un plano continuo, no una rejilla.
 
-Cada posición se representará mediante `[fila, columna]`. Las coordenadas
-comenzarán en cero.
+- Las coordenadas se expresan en **unidades de mundo**, con decimales.
+- El origen `(0, 0)` es el centro del mapa y también el centro del círculo.
+- El eje **x** crece hacia la derecha.
+- El eje **y** crece hacia **abajo**, siguiendo la convención de pantalla.
 
-Ejemplo para un tablero de 20 × 20:
+El mapa es un cuadrado de `mapSize` × `mapSize` unidades centrado en el origen.
+Las coordenadas válidas van de `-mapSize / 2` a `+mapSize / 2` en ambos ejes.
 
-- Primera casilla: `[0, 0]`
-- Última casilla: `[19, 19]`
+Ningún jugador podrá salir del mapa: el servidor recorta la posición a esos
+límites.
 
-## 5. Tipos de casilla
+La conversión de unidades de mundo a píxeles es decisión de cada cliente. Un
+proyecto ASCII, uno 2D y uno 3D pueden verse distintos y seguir siendo
+compatibles.
 
-Una casilla podrá contener:
+## 6. El círculo central
 
-- espacio libre;
-- obstáculo;
-- bandera;
-- jugador.
+En el centro del mapa existe un área circular de radio `circleRadius`, centrada
+en el origen.
 
-Una casilla no podrá contener más de un jugador al mismo tiempo.
+Un jugador se considera **dentro del círculo** cuando la distancia de su centro
+al origen es menor o igual a `circleRadius`.
 
-## 6. Jugadores
+Un jugador se considera **completamente fuera del círculo** cuando:
 
-No existirá un límite lógico fijo de jugadores simultáneos. El servidor podrá
-definir un máximo técnico configurable según sus recursos.
+```
+distancia(jugador, origen) - playerRadius > circleRadius
+```
 
-Cada jugador tendrá:
+Esa distinción importa solo para la condición de victoria (§16). No basta con
+tocar el borde.
 
-| Campo | Descripción |
-|---|---|
-| `playerId` | Identificador único asignado por el servidor. |
-| `name` | Nombre visible del jugador. |
-| `row` | Fila actual. |
-| `column` | Columna actual. |
-| `direction` | Dirección activa. |
-| `connected` | Indica si continúa conectado. |
-| `insideBoard` | Indica si ya ingresó al tablero. |
-| `hasFlag` | Indica si posee la bandera. |
-| `protected` | Indica si tiene protección temporal después de un robo. |
+El círculo no es una barrera: cualquiera puede entrar y salir libremente en
+cualquier momento, tenga o no la bandera.
 
-## 7. Posición inicial
+## 7. La bandera
 
-Cada jugador iniciará en una posición aleatoria fuera del tablero, junto a uno de
-sus bordes.
-
-Las posiciones externas podrán representarse así:
-
-- Fila `-1`: arriba del tablero
-- Fila igual a `rows`: debajo del tablero
-- Columna `-1`: izquierda del tablero
-- Columna igual a `columns`: derecha del tablero
-
-La dirección inicial deberá apuntar hacia el interior.
-
-Ejemplo:
-
-- Posición inicial: `[-1, 8]`
-- Dirección inicial: `DOWN`
-
-El jugador ingresará automáticamente al tablero durante el primer ciclo en que la
-casilla de entrada esté libre.
-
-## 8. Movimiento
-
-Las direcciones permitidas serán:
-
-- `UP`
-- `DOWN`
-- `LEFT`
-- `RIGHT`
-
-No se permitirán movimientos diagonales.
-
-El movimiento será continuo, similar al juego de la serpiente:
-
-- cada jugador mantiene una dirección activa;
-- continúa avanzando automáticamente;
-- solo cambia de dirección cuando el cliente envía una nueva;
-- no existirá una acción para detenerse.
-
-Cada cliente únicamente enviará cambios de dirección. El cliente nunca enviará
-posiciones nuevas.
-
-## 9. Ciclo del juego
-
-El servidor ejecutará ciclos automáticos de movimiento.
-
-Intervalo inicial recomendado: **200 milisegundos**.
-
-En cada ciclo, el servidor intentará mover una casilla a cada jugador según su
-dirección activa.
-
-El intervalo será configurable mediante `movementIntervalMs`.
-
-## 10. Obstáculos
-
-Los obstáculos:
-
-- se generarán aleatoriamente al iniciar la partida;
-- permanecerán fijos;
-- no podrán atravesarse;
-- no podrán colocarse sobre la bandera;
-- no podrán bloquear completamente el acceso al centro;
-- no podrán impedir que existan rutas hacia los bordes.
-
-Porcentaje inicial recomendado: **10 %**. Parámetro: `obstaclePercentage`.
-
-El servidor deberá comprobar que el tablero tenga rutas válidas antes de iniciar
-la partida.
-
-## 11. Bandera
-
-Existirá una única bandera. La bandera se colocará aleatoriamente cerca del
-centro del tablero. El área sugerida será el porcentaje central definido por
-`centralFlagAreaPercentage`, con valor inicial recomendado de **30 %**.
-
-La bandera se tomará automáticamente cuando un jugador llegue a su casilla.
+Existirá una única bandera, ubicada exactamente en el centro del mapa, en `(0, 0)`.
 
 Estados posibles:
 
 | Estado | Significado |
 |---|---|
-| `AVAILABLE` | Está en su posición inicial. |
+| `AVAILABLE` | Está en el suelo y nadie la lleva. |
 | `CARRIED` | Un jugador la transporta. |
-| `DROPPED` | Cayó por desconexión del portador. |
-| `OUTSIDE` | Salió del tablero y la partida terminó. |
+| `DROPPED` | Cayó porque su portador se desconectó. |
+| `OUTSIDE` | Salió del círculo y la partida terminó. |
 
-## 12. Bloqueos
+Mientras está `CARRIED`, la posición de la bandera es la del portador.
 
-Si el siguiente movimiento encuentra:
+Mientras está `DROPPED`, permanece fija en el punto donde cayó y puede volver a
+tomarse.
 
-- un obstáculo;
-- una casilla ocupada;
-- un límite por el cual el jugador no puede salir;
+## 8. Jugadores
 
-el jugador permanecerá en su posición actual.
+El servidor aceptará hasta `maximumPlayers` jugadores simultáneos.
 
-El jugador seguirá intentando avanzar en la misma dirección durante los
-siguientes ciclos. Para desbloquearse deberá cambiar de dirección o esperar a que
-la casilla quede libre.
+Cada jugador tendrá:
 
-## 13. Colisiones entre jugadores
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `playerId` | string | Identificador único asignado por el servidor. |
+| `name` | string | Nombre visible del jugador. |
+| `x` | number | Posición horizontal en unidades de mundo. |
+| `y` | number | Posición vertical en unidades de mundo. |
+| `moveX` | number | Componente horizontal de la intención de movimiento, de `-1` a `1`. |
+| `moveY` | number | Componente vertical de la intención de movimiento, de `-1` a `1`. |
+| `hasFlag` | boolean | Indica si lleva la bandera. |
 
-Dos jugadores no podrán ocupar la misma casilla.
+No existe campo de protección ni de inmunidad. El reglamento no las contempla
+(§14).
 
-Cuando un jugador intente avanzar hacia una casilla ocupada:
+## 9. Posición inicial
 
-- el movimiento no se completará;
-- el jugador atacante permanecerá en su casilla;
-- el jugador bloqueador permanecerá en su casilla;
-- el servidor evaluará si corresponde un robo de bandera.
+Cada jugador aparecerá en una posición aleatoria **fuera del círculo**.
 
-## 14. Robo de bandera
+El servidor elegirá un ángulo aleatorio y colocará al jugador a una distancia del
+origen de `circleRadius + spawnMargin`, dentro de los límites del mapa.
 
-Si un jugador intenta avanzar hacia la casilla ocupada por el portador:
+Todos los jugadores comienzan quietos: `moveX` y `moveY` en `0`. Ningún jugador
+comienza con la bandera.
 
-- la bandera pasará al jugador atacante;
-- ninguno de los jugadores cambiará de posición;
-- ninguno será eliminado;
-- ninguno regresará al inicio.
+## 10. Movimiento
 
-El robo será válido únicamente si el portador no tiene protección activa.
+El movimiento es libre y continuo. No hay direcciones fijas ni casillas.
 
-La bandera podrá cambiar de dueño múltiples veces durante la partida.
+El cliente envía su **intención de movimiento** como un vector `(moveX, moveY)`
+con componentes entre `-1` y `1`. Ese vector representa las teclas que el jugador
+tiene presionadas en ese instante; qué teclas son es decisión de cada proyecto.
 
-## 15. Protección después del robo
+Reglas:
 
-Después de robar la bandera, el nuevo portador obtendrá protección temporal.
+- Si la magnitud del vector es mayor que `1`, el servidor la normaliza a `1`. Así
+  moverse en diagonal no es más rápido.
+- Un vector `(0, 0)` significa que el jugador está quieto. Detenerse es una
+  acción válida.
+- El vector se mantiene vigente hasta que el cliente envíe otro. El cliente no
+  necesita reenviarlo en cada ciclo.
+- El cliente **nunca** envía posiciones. Solo intención.
 
-Valor inicial: **1000 milisegundos**. Parámetro: `protectionTimeMs`.
+En cada ciclo el servidor mueve a cada jugador así:
 
-Durante ese período:
+```
+dt = tickIntervalMs / 1000
+x  = x + moveX * playerSpeed * dt
+y  = y + moveY * playerSpeed * dt
+```
 
-- ningún jugador podrá robarle la bandera;
-- los intentos de contacto quedarán bloqueados;
-- el portador continuará moviéndose normalmente.
+y después recorta la posición a los límites del mapa.
 
-El servidor será responsable de calcular el inicio y final de la protección.
+Los jugadores **no colisionan entre sí**. Pueden ocupar el mismo punto. La
+cercanía solo importa para interactuar (§12).
 
-## 16. Conflictos simultáneos
+## 11. Ciclo del servidor
 
-Todos los movimientos de un ciclo se calcularán utilizando el mismo estado
-inicial.
+El servidor ejecutará ciclos automáticos. Intervalo recomendado:
+`tickIntervalMs`, con valor inicial de **50 milisegundos**, es decir 20 ciclos
+por segundo.
 
-Si dos o más jugadores intentan ingresar a la misma casilla libre durante el
-mismo ciclo:
+Cada ciclo tendrá un número entero consecutivo, `tick`, que comienza en `1`.
 
-- ninguno ocupará la casilla;
-- todos permanecerán en sus posiciones actuales.
+Al final de cada ciclo el servidor envía `GAME_STATE` a todos los clientes.
 
-Si varios jugadores intentan robar la bandera en el mismo ciclo:
+## 12. Interacción
 
-- el servidor resolverá el conflicto utilizando el orden interno de jugadores;
-- dicho orden deberá ser estable, por ejemplo, orden ascendente de `playerId`;
-- únicamente el primer robo válido será aplicado;
-- inmediatamente comenzará la protección del nuevo portador.
+Tomar y robar la bandera requieren que el jugador **presione la tecla de
+interacción**. Nunca ocurren de forma automática por acercarse.
 
-## 17. Salida del tablero
+Cuando el jugador la presiona, el cliente envía un mensaje `INTERACT` (§28.3). La
+tecla concreta es decisión de cada proyecto.
 
-Un jugador sin bandera no podrá salir después de haber ingresado.
+El servidor procesará la interacción si la distancia entre el jugador y el
+objetivo es menor o igual a `interactionRadius`.
 
-El portador podrá salir desde cualquier borde. Condiciones:
+Si el jugador envía varios `INTERACT` antes del mismo ciclo, el servidor
+procesará **únicamente uno**. Esto no es una inmunidad: es evitar que un cliente
+que envía cien mensajes por segundo tenga ventaja sobre uno que envía veinte.
 
-- Fila `0` + dirección `UP`
-- Fila `rows - 1` + dirección `DOWN`
-- Columna `0` + dirección `LEFT`
-- Columna `columns - 1` + dirección `RIGHT`
+Si un `INTERACT` no cumple las condiciones —está lejos, la bandera ya la lleva él
+mismo, no hay nada cerca— el servidor lo **ignora en silencio**. No envía `ERROR`.
+Presionar la tecla sin resultado es parte normal del juego y responder con un
+error inundaría la conexión.
 
-Cuando el portador complete ese movimiento, habrá ganado.
+## 13. Tomar la bandera
 
-## 18. Victoria
+Si un jugador envía `INTERACT`, la bandera está en estado `AVAILABLE` o `DROPPED`,
+y la distancia entre el jugador y la bandera es menor o igual a
+`interactionRadius`:
 
-El servidor declarará ganador al jugador que:
+- la bandera pasa inmediatamente a pertenecer a ese jugador;
+- deja de estar en el suelo y pasa a estado `CARRIED`;
+- desde ese momento acompaña al jugador.
 
-- tenga la bandera;
-- se encuentre en una casilla del borde;
-- complete un movimiento hacia el exterior.
+El servidor envía `FLAG_PICKED_UP` (§29.6).
 
-Después de declarar al ganador:
+## 14. Robo de la bandera
 
-- el estado cambiará a `FINISHED`;
-- no se procesarán más movimientos;
-- se enviará el resultado a todos los clientes;
-- la bandera cambiará a estado `OUTSIDE`.
+Si un jugador posee la bandera, cualquier otro jugador puede robársela.
 
-## 19. Desconexiones
+Condiciones:
+
+- el atacante debe estar a una distancia del portador menor o igual a
+  `interactionRadius`;
+- el atacante debe enviar `INTERACT`.
+
+Si ambas se cumplen, la bandera cambia inmediatamente de propietario. Ninguno de
+los dos cambia de posición y ninguno es eliminado.
+
+**No existe tiempo de espera. No existe inmunidad. El robo es instantáneo.**
+
+La bandera podrá cambiar de dueño tantas veces como haga falta durante la
+partida, incluso en ciclos consecutivos.
+
+El servidor envía `FLAG_STOLEN` (§29.7).
+
+## 15. Conflictos simultáneos
+
+Todas las interacciones de un ciclo se evalúan contra el mismo estado inicial.
+
+Si varios jugadores envían `INTERACT` sobre el portador en el mismo ciclo:
+
+- el servidor los ordena por `playerId` ascendente;
+- **únicamente el primer robo válido se aplica**;
+- los demás no producen ningún efecto.
+
+Quien quiera robarle al nuevo portador deberá presionar la tecla otra vez en un
+ciclo posterior. El orden por `playerId` debe ser estable para que todos los
+servidores resuelvan igual el mismo empate.
+
+## 16. Condición de victoria
+
+Un jugador gana cuando:
+
+1. tiene la bandera; y
+2. cruza **completamente** el límite del círculo hacia el exterior, es decir
+   `distancia(jugador, origen) - playerRadius > circleRadius`.
+
+No basta con tocar el borde. Debe encontrarse totalmente fuera del área central.
+
+El servidor evalúa esta condición al final de cada ciclo, después de mover a los
+jugadores. Cuando se cumple:
+
+- el estado de la partida cambia a `FINISHED`;
+- la bandera cambia a estado `OUTSIDE`;
+- no se procesan más movimientos ni interacciones;
+- el servidor envía el `GAME_STATE` final y después `GAME_OVER` (§29.11).
+
+## 17. Desconexiones
 
 Si un jugador se desconecta:
 
-- será eliminado del tablero;
-- dejará de participar;
-- el servidor notificará a los demás jugadores.
+- será eliminado del mapa;
+- dejará de aparecer en `players` a partir del siguiente `GAME_STATE`;
+- el servidor notificará a los demás con `PLAYER_DISCONNECTED` (§29.9).
 
 Si el jugador llevaba la bandera:
 
 - la bandera caerá en su última posición válida;
 - cambiará a estado `DROPPED`;
-- podrá ser recogida por otro jugador.
+- podrá ser recogida por cualquier jugador con `INTERACT` (§13).
 
 No habrá reconexión automática.
 
-## 20. Estados de la partida
+## 18. Estados de la partida
 
 | Estado | Significado |
 |---|---|
-| `WAITING` | Acepta jugadores. |
-| `STARTING` | Genera tablero, obstáculos y posiciones. |
-| `RUNNING` | Ejecuta el juego. |
+| `WAITING` | Acepta jugadores. Aparece en el descubrimiento. |
+| `STARTING` | Cuenta regresiva en curso. Ya no acepta jugadores. |
+| `RUNNING` | La partida está en juego. |
 | `FINISHED` | Existe un ganador. |
 | `CANCELLED` | El servidor canceló la partida. |
 
-No se aceptarán jugadores después de iniciar la partida.
+No se aceptarán jugadores después de que inicie la cuenta regresiva.
 
-## 21. Inicio de la partida
+## 19. Descubrimiento de servidores
 
-El servidor controlará el inicio. Flujo:
+El cliente deberá poder **descubrir servidores disponibles** sin que el usuario
+escriba una dirección IP.
 
-1. El servidor entra en estado `WAITING`.
-2. Los jugadores envían `JOIN`.
-3. El servidor acepta o rechaza cada conexión.
+El descubrimiento usa **UDP broadcast** en `discoveryPort`. Es el único uso de
+UDP en el protocolo: la partida completa viaja por TCP (§22).
+
+Flujo:
+
+1. El cliente envía por broadcast un `DISCOVER_REQUEST` (§27.1) a
+   `255.255.255.255:discoveryPort`.
+2. Todo servidor en estado `WAITING` responde por UDP directo al remitente con un
+   `DISCOVER_RESPONSE` (§27.2), que incluye su puerto TCP.
+3. El cliente muestra la lista y el usuario elige.
+4. El cliente abre una conexión TCP al servidor elegido y envía `JOIN` (§28.1).
+
+Un servidor que no esté en `WAITING` no responde. El cliente deberá permitir
+también la conexión manual por IP y puerto, para redes donde el broadcast esté
+bloqueado.
+
+## 20. Inicio de la partida
+
+El anfitrión —quien ejecuta el modo servidor— controla el inicio.
+
+Flujo:
+
+1. El servidor entra en estado `WAITING` y comienza a responder el descubrimiento.
+2. Los clientes envían `JOIN`; el servidor acepta o rechaza cada conexión.
+3. Cada vez que la lista de jugadores cambia, el servidor envía `LOBBY_STATE`
+   (§29.3) a todos.
 4. El anfitrión inicia la partida.
-5. El servidor cambia a `STARTING`.
-6. Genera tablero, obstáculos, bandera y posiciones.
-7. Envía `GAME_STARTED`.
-8. Cambia a `RUNNING`.
+5. El servidor cambia a `STARTING` y envía `GAME_COUNTDOWN` (§29.4) una vez por
+   segundo, desde `countdownSeconds` hasta `1`.
+6. Al terminar la cuenta, genera las posiciones iniciales y envía `GAME_STARTED`
+   (§29.5).
+7. Cambia a `RUNNING` y comienza a enviar `GAME_STATE`.
 
-## 22. Parámetros configurables
+## 21. Parámetros configurables
 
-| Parámetro | Valor inicial sugerido |
-|---|---|
-| `rows` | 20 |
-| `columns` | 20 |
-| `obstaclePercentage` | 10 |
-| `movementIntervalMs` | 200 |
-| `protectionTimeMs` | 1000 |
-| `maximumPlayers` | 30 |
-| `centralFlagAreaPercentage` | 30 |
-| `serverPort` | 5000 |
+| Parámetro | Valor inicial | Descripción |
+|---|---|---|
+| `mapSize` | 2000 | Lado del mapa cuadrado, en unidades de mundo. |
+| `circleRadius` | 500 | Radio del círculo central. |
+| `playerRadius` | 15 | Radio del jugador, usado en la condición de victoria. |
+| `spawnMargin` | 80 | Distancia extra fuera del círculo donde aparecen los jugadores. |
+| `playerSpeed` | 220 | Unidades de mundo por segundo. |
+| `interactionRadius` | 60 | Alcance de la tecla de interacción. |
+| `tickIntervalMs` | 50 | Duración del ciclo del servidor. |
+| `countdownSeconds` | 5 | Duración de la cuenta regresiva. |
+| `maximumPlayers` | 100 | Máximo de jugadores simultáneos. |
+| `serverPort` | 5000 | Puerto TCP de la partida. |
+| `discoveryPort` | 5001 | Puerto UDP del descubrimiento. |
 
-## 23. Protocolo de transporte
+Los valores efectivos viajan en `GAME_STARTED`. El cliente **no** debe asumir los
+valores por defecto: debe leer los que le manda el servidor.
 
-Se utilizará **TCP**.
+## 22. Protocolo de transporte
 
-TCP fue seleccionado porque:
+| Uso | Transporte | Puerto |
+|---|---|---|
+| Descubrimiento de servidores | UDP broadcast | `discoveryPort` |
+| Partida completa | TCP | `serverPort` |
 
-- garantiza que los mensajes lleguen;
-- mantiene el orden;
-- evita pérdidas normales de mensajes;
-- permite detectar desconexiones;
-- está disponible en prácticamente todos los lenguajes;
-- puede utilizarse con funciones nativas o librerías;
-- simplifica la comunicación entre implementaciones distintas.
+TCP para la partida porque garantiza entrega y orden, permite detectar
+desconexiones y está disponible en todos los lenguajes.
 
-No se utilizará UDP ni WebSocket en la versión 1.0.
+UDP únicamente para el descubrimiento, porque el broadcast lo requiere y la
+pérdida de un datagrama de descubrimiento no tiene consecuencias: el cliente
+vuelve a preguntar.
 
-## 24. Formato de comunicación
+No se utilizará WebSocket. Un cliente que corra dentro de un navegador necesitará
+un proceso puente que hable TCP y UDP del lado del sistema operativo.
 
-Todos los mensajes utilizarán **JSON**, codificación **UTF-8**, un mensaje JSON
-por línea, terminado en `\n`.
+## 23. Formato de comunicación
+
+Todos los mensajes, TCP y UDP, utilizarán **JSON** codificado en **UTF-8**.
+
+Sobre **TCP**: un mensaje JSON por línea, terminado en `\n`. El receptor lee hasta
+encontrar `\n`. El carácter `\n` no forma parte del JSON. No se permiten saltos de
+línea dentro del mensaje.
 
 Ejemplo transmitido:
 
 ```
-{"type":"CHANGE_DIRECTION","protocolVersion":"1.0","gameId":"GAME-001","playerId":"P07","direction":"LEFT"}\n
+{"type":"INTERACT","protocolVersion":"2.0","gameId":"GAME-001","playerId":"P07"}\n
 ```
 
-Reglas:
+Sobre **UDP**: un datagrama contiene exactamente un mensaje JSON. El `\n` final es
+opcional y el receptor debe tolerarlo.
 
-- cada JSON deberá escribirse en una sola línea;
-- no se permitirán saltos de línea dentro del mensaje;
-- el receptor deberá leer hasta encontrar `\n`;
-- el carácter `\n` no será parte del JSON.
+## 24. Convenciones JSON
 
-## 25. Convenciones JSON
-
-Los nombres de campos utilizarán **camelCase**. Ejemplos: `playerId`, `gameId`,
-`movementIntervalMs`, `protectionTimeMs`.
+Los nombres de campos utilizarán **camelCase**: `playerId`, `gameId`, `moveX`,
+`circleRadius`.
 
 Tipos permitidos:
 
 - texto: JSON string;
-- números enteros: JSON number;
+- números: JSON number, enteros o con decimales;
 - verdadero o falso: JSON boolean;
 - listas: JSON array;
 - objetos: JSON object;
 - ausencia de valor: JSON null.
 
-Los valores de enumeraciones utilizarán mayúsculas: `LEFT`, `RUNNING`, `CARRIED`.
+Los valores de enumeraciones utilizarán mayúsculas: `RUNNING`, `CARRIED`,
+`AVAILABLE`.
 
-## 26. Estructura común de mensajes
+Las coordenadas y demás números con decimales se enviarán **redondeados a dos
+decimales**. Es suficiente para dibujar y mantiene los mensajes cortos. El emisor
+redondea; el receptor acepta cualquier cantidad de decimales.
+
+## 25. Estructura común de mensajes
 
 Todos los mensajes deberán contener:
 
 ```json
 {
   "type": "MESSAGE_TYPE",
-  "protocolVersion": "1.0"
+  "protocolVersion": "2.0"
 }
 ```
 
@@ -426,16 +442,47 @@ Campos comunes adicionales cuando corresponda: `gameId`, `playerId`, `tick`.
 
 El servidor deberá rechazar versiones de protocolo incompatibles.
 
-## 27. Identificadores
+## 26. Identificadores
 
-Jugador, asignado por el servidor: `P01`, `P02`, `P03`.
+- Jugador, asignado por el servidor: `P01`, `P02`, `P03`.
+- Partida, asignado por el servidor: `GAME-001`.
+- Ciclo: entero consecutivo desde `1`. El valor `tick` permite identificar el
+  estado más reciente.
 
-Partida, asignado por el servidor: `GAME-001`.
+## 27. Mensajes de descubrimiento (UDP)
 
-Ciclo: cada ciclo tendrá un número entero consecutivo (`tick: 1`, `tick: 2`,
-`tick: 3`). El valor `tick` permitirá identificar el estado más reciente.
+### 27.1 DISCOVER_REQUEST
 
-## 28. Mensajes del cliente al servidor
+Enviado por el cliente a la dirección de broadcast.
+
+```json
+{
+  "type": "DISCOVER_REQUEST",
+  "protocolVersion": "2.0"
+}
+```
+
+### 27.2 DISCOVER_RESPONSE
+
+Enviado por cada servidor en estado `WAITING`, por UDP directo al remitente.
+
+```json
+{
+  "type": "DISCOVER_RESPONSE",
+  "protocolVersion": "2.0",
+  "gameId": "GAME-001",
+  "serverName": "Partida de Ana",
+  "tcpPort": 5000,
+  "state": "WAITING",
+  "playerCount": 3,
+  "maximumPlayers": 100
+}
+```
+
+El cliente obtiene la dirección IP del servidor del propio datagrama; no viaja en
+el JSON, porque un servidor con varias interfaces no sabe cuál ve el cliente.
+
+## 28. Mensajes del cliente al servidor (TCP)
 
 ### 28.1 JOIN
 
@@ -444,58 +491,71 @@ Solicita ingresar a la partida.
 ```json
 {
   "type": "JOIN",
-  "protocolVersion": "1.0",
+  "protocolVersion": "2.0",
   "name": "Pepito"
 }
 ```
 
-Campos:
+Campos: `name`, texto no vacío.
 
-- `name`: texto no vacío.
+### 28.2 INPUT
 
-### 28.2 CHANGE_DIRECTION
-
-Cambia la dirección activa.
+Actualiza la intención de movimiento. Se envía cuando cambia, no en cada cuadro.
 
 ```json
 {
-  "type": "CHANGE_DIRECTION",
-  "protocolVersion": "1.0",
+  "type": "INPUT",
+  "protocolVersion": "2.0",
   "gameId": "GAME-001",
   "playerId": "P07",
-  "direction": "LEFT"
+  "moveX": 0.0,
+  "moveY": -1.0
 }
 ```
 
-Direcciones válidas: `UP`, `DOWN`, `LEFT`, `RIGHT`.
+`moveX` y `moveY` van de `-1` a `1`. El ejemplo anterior es "arriba", porque el
+eje `y` crece hacia abajo (§5).
 
-El servidor deberá comprobar que el `playerId` pertenece a la conexión que envió
-el mensaje.
+Si el cliente envía varios `INPUT` antes del mismo ciclo, solo se aplica el
+último.
 
-Si el cliente envía varios cambios antes del mismo ciclo, únicamente se aplicará
-el último.
+### 28.3 INTERACT
 
-### 28.3 LEAVE
-
-Indica que el jugador abandona voluntariamente.
+El jugador presionó la tecla de interacción.
 
 ```json
 {
-  "type": "LEAVE",
-  "protocolVersion": "1.0",
+  "type": "INTERACT",
+  "protocolVersion": "2.0",
   "gameId": "GAME-001",
   "playerId": "P07"
 }
 ```
 
-## 29. Mensajes del servidor al cliente
+El cliente no indica el objetivo. El servidor decide qué corresponde según §13 y
+§14.
+
+### 28.4 LEAVE
+
+El jugador abandona voluntariamente.
+
+```json
+{
+  "type": "LEAVE",
+  "protocolVersion": "2.0",
+  "gameId": "GAME-001",
+  "playerId": "P07"
+}
+```
+
+## 29. Mensajes del servidor al cliente (TCP)
 
 ### 29.1 JOIN_ACCEPTED
 
 ```json
 {
   "type": "JOIN_ACCEPTED",
-  "protocolVersion": "1.0",
+  "protocolVersion": "2.0",
   "playerId": "P07",
   "gameId": "GAME-001"
 }
@@ -506,7 +566,7 @@ Indica que el jugador abandona voluntariamente.
 ```json
 {
   "type": "JOIN_REJECTED",
-  "protocolVersion": "1.0",
+  "protocolVersion": "2.0",
   "reason": "GAME_ALREADY_STARTED"
 }
 ```
@@ -514,182 +574,221 @@ Indica que el jugador abandona voluntariamente.
 Motivos posibles: `GAME_ALREADY_STARTED`, `GAME_FULL`, `INVALID_NAME`,
 `UNSUPPORTED_PROTOCOL_VERSION`.
 
-### 29.3 GAME_STARTED
+### 29.3 LOBBY_STATE
+
+Enviado cada vez que la lista de jugadores cambia durante `WAITING`.
+
+```json
+{
+  "type": "LOBBY_STATE",
+  "protocolVersion": "2.0",
+  "gameId": "GAME-001",
+  "state": "WAITING",
+  "players": [
+    { "playerId": "P01", "name": "Ana" },
+    { "playerId": "P02", "name": "Beto" }
+  ]
+}
+```
+
+### 29.4 GAME_COUNTDOWN
+
+Enviado una vez por segundo durante `STARTING`.
+
+```json
+{
+  "type": "GAME_COUNTDOWN",
+  "protocolVersion": "2.0",
+  "gameId": "GAME-001",
+  "secondsRemaining": 3
+}
+```
+
+### 29.5 GAME_STARTED
 
 Envía la configuración completa al iniciar.
 
 ```json
 {
   "type": "GAME_STARTED",
-  "protocolVersion": "1.0",
+  "protocolVersion": "2.0",
   "gameId": "GAME-001",
-  "rows": 20,
-  "columns": 20,
-  "movementIntervalMs": 200,
-  "protectionTimeMs": 1000,
-  "obstacles": [
-    { "row": 2, "column": 8 },
-    { "row": 2, "column": 9 }
-  ],
+  "mapSize": 2000,
+  "circleRadius": 500,
+  "playerRadius": 15,
+  "playerSpeed": 220,
+  "interactionRadius": 60,
+  "tickIntervalMs": 50,
   "flag": {
-    "row": 10,
-    "column": 11,
+    "x": 0,
+    "y": 0,
     "status": "AVAILABLE",
     "carrierId": null
   },
   "players": [
     {
       "playerId": "P01",
-      "name": "Jugador 1",
-      "row": -1,
-      "column": 5,
-      "direction": "DOWN",
-      "insideBoard": false,
-      "hasFlag": false,
-      "protected": false
+      "name": "Ana",
+      "x": -410.5,
+      "y": -410.5,
+      "moveX": 0,
+      "moveY": 0,
+      "hasFlag": false
     }
   ]
 }
 ```
 
-### 29.4 GAME_STATE
+### 29.6 GAME_STATE
 
-El servidor enviará el estado oficial después de cada ciclo.
+Enviado al final de cada ciclo. Es el estado oficial.
 
 ```json
 {
   "type": "GAME_STATE",
-  "protocolVersion": "1.0",
+  "protocolVersion": "2.0",
   "gameId": "GAME-001",
   "tick": 185,
   "players": [
     {
       "playerId": "P01",
-      "name": "Jugador 1",
-      "row": 4,
-      "column": 7,
-      "direction": "RIGHT",
-      "insideBoard": true,
-      "hasFlag": false,
-      "protected": false
+      "name": "Ana",
+      "x": -120.75,
+      "y": 44.2,
+      "moveX": 1,
+      "moveY": 0,
+      "hasFlag": false
     },
     {
       "playerId": "P07",
       "name": "Edgar",
-      "row": 10,
-      "column": 13,
-      "direction": "LEFT",
-      "insideBoard": true,
-      "hasFlag": true,
-      "protected": true
+      "x": 318.4,
+      "y": -95.1,
+      "moveX": 0.71,
+      "moveY": -0.71,
+      "hasFlag": true
     }
   ],
   "flag": {
     "status": "CARRIED",
-    "row": 10,
-    "column": 13,
+    "x": 318.4,
+    "y": -95.1,
     "carrierId": "P07"
   }
 }
 ```
 
-El cliente deberá mostrar siempre el estado con el `tick` más reciente.
+El arreglo `players` contiene únicamente jugadores conectados. El cliente deberá
+mostrar siempre el estado con el `tick` más reciente e ignorar los que lleguen
+con un `tick` menor al último recibido.
 
-### 29.5 FLAG_PICKED_UP
+### 29.7 FLAG_PICKED_UP
 
 ```json
 {
   "type": "FLAG_PICKED_UP",
-  "protocolVersion": "1.0",
+  "protocolVersion": "2.0",
   "gameId": "GAME-001",
   "tick": 90,
   "playerId": "P07"
 }
 ```
 
-### 29.6 FLAG_STOLEN
+### 29.8 FLAG_STOLEN
 
 ```json
 {
   "type": "FLAG_STOLEN",
-  "protocolVersion": "1.0",
+  "protocolVersion": "2.0",
   "gameId": "GAME-001",
   "tick": 105,
   "previousCarrierId": "P01",
-  "newCarrierId": "P07",
-  "protectionTimeMs": 1000
+  "newCarrierId": "P07"
 }
 ```
 
-### 29.7 PLAYER_DISCONNECTED
+No lleva tiempo de protección: no existe (§14).
+
+### 29.9 PLAYER_DISCONNECTED
 
 ```json
 {
   "type": "PLAYER_DISCONNECTED",
-  "protocolVersion": "1.0",
+  "protocolVersion": "2.0",
   "gameId": "GAME-001",
   "playerId": "P07"
 }
 ```
 
-### 29.8 GAME_OVER
+### 29.10 GAME_OVER
 
 ```json
 {
   "type": "GAME_OVER",
-  "protocolVersion": "1.0",
+  "protocolVersion": "2.0",
   "gameId": "GAME-001",
   "winnerId": "P07",
   "winnerName": "Edgar",
-  "reason": "EXITED_WITH_FLAG"
+  "reason": "EXITED_CIRCLE_WITH_FLAG"
 }
 ```
 
-### 29.9 ERROR
+### 29.11 Orden de los mensajes en un mismo ciclo
+
+Dentro de un ciclo, el servidor envía primero los eventos —`FLAG_PICKED_UP`,
+`FLAG_STOLEN`, `PLAYER_DISCONNECTED`— y al final el `GAME_STATE` de ese `tick`.
+Si hay varios eventos, van en orden ascendente de `playerId` del jugador afectado.
+
+En el ciclo de la victoria se envía el `GAME_STATE` final y **después**
+`GAME_OVER`. Sin ese último estado el cliente nunca dibujaría el momento en que
+el ganador cruza el borde.
+
+### 29.12 ERROR
 
 ```json
 {
   "type": "ERROR",
-  "protocolVersion": "1.0",
-  "code": "INVALID_DIRECTION",
-  "description": "La dirección recibida no es válida."
+  "protocolVersion": "2.0",
+  "code": "INVALID_INPUT",
+  "description": "El vector de movimiento no es válido."
 }
 ```
 
-Códigos mínimos: `INVALID_MESSAGE`, `INVALID_JSON`, `INVALID_DIRECTION`,
+Códigos mínimos: `INVALID_MESSAGE`, `INVALID_JSON`, `INVALID_INPUT`,
 `UNKNOWN_PLAYER`, `GAME_NOT_STARTED`, `GAME_ALREADY_STARTED`, `GAME_FINISHED`,
 `UNSUPPORTED_PROTOCOL_VERSION`.
+
+Un `INTERACT` que no cumple condiciones **no** genera error (§12).
 
 ## 30. Funcionamiento interno del servidor
 
 En cada ciclo, el servidor deberá:
 
-1. recopilar los cambios de dirección pendientes;
-2. conservar únicamente el último cambio de cada jugador;
-3. aplicar los cambios de dirección;
-4. calcular la posición propuesta de cada jugador;
-5. validar límites;
-6. validar obstáculos;
-7. detectar conflictos de casilla;
-8. resolver contactos y robos;
-9. actualizar las posiciones válidas;
-10. actualizar la ubicación de la bandera;
-11. actualizar la protección;
-12. verificar desconexiones;
-13. verificar la condición de victoria;
-14. incrementar el `tick`;
-15. enviar `GAME_STATE` a todos los clientes.
+1. recopilar los `INPUT` pendientes y conservar solo el último de cada jugador;
+2. recopilar los `INTERACT` pendientes y conservar solo uno por jugador;
+3. aplicar los vectores de movimiento, normalizando los que excedan magnitud 1;
+4. calcular la nueva posición de cada jugador;
+5. recortar las posiciones a los límites del mapa;
+6. resolver las interacciones en orden ascendente de `playerId`;
+7. actualizar el portador y la posición de la bandera;
+8. verificar desconexiones;
+9. verificar la condición de victoria;
+10. incrementar el `tick`;
+11. enviar los eventos del ciclo y después el `GAME_STATE`.
 
 ## 31. Reglas de sincronización
 
 - El servidor será la única fuente oficial.
 - Los clientes no calcularán posiciones definitivas.
-- Los clientes solo enviarán cambios de dirección.
-- Todos los movimientos se resolverán en el servidor.
+- Los clientes solo enviarán intención de movimiento e interacción.
 - Todos los jugadores se evaluarán una vez por ciclo.
-- Los movimientos de un mismo ciclo usarán el mismo estado inicial.
+- Los movimientos e interacciones de un ciclo usarán el mismo estado inicial.
 - Todos los clientes recibirán el mismo resultado.
 - Un cliente deberá ignorar estados con un `tick` menor al último recibido.
+
+Un cliente **puede** predecir localmente el movimiento de su propio jugador para
+que se sienta fluido entre ciclos, siempre que corrija su posición cuando llegue
+el `GAME_STATE`. Esa predicción es opcional y nunca es autoritativa.
 
 ## 32. Validaciones obligatorias del servidor
 
@@ -697,94 +796,84 @@ El servidor deberá validar:
 
 - formato JSON correcto;
 - tipo de mensaje conocido;
-- versión compatible;
+- versión de protocolo compatible;
 - jugador registrado;
-- conexión correspondiente al `playerId`;
-- dirección permitida;
-- partida en estado correcto;
-- coordenadas válidas;
-- obstáculos válidos;
-- colisiones;
-- robo permitido;
-- protección activa;
-- condición de salida;
+- que el `playerId` corresponde a la conexión que envió el mensaje;
+- rango de `moveX` y `moveY`;
+- partida en el estado correcto;
+- límites del mapa;
+- distancia para interactuar;
+- condición de robo;
 - condición de victoria.
 
 Nunca deberá confiar en posiciones enviadas por el cliente.
 
 ## 33. Mensajes mínimos obligatorios
 
-Cliente hacia servidor:
+Descubrimiento (UDP): `DISCOVER_REQUEST`, `DISCOVER_RESPONSE`.
 
-- `JOIN`
-- `CHANGE_DIRECTION`
-- `LEAVE`
+Cliente hacia servidor (TCP): `JOIN`, `INPUT`, `INTERACT`, `LEAVE`.
 
-Servidor hacia cliente:
-
-- `JOIN_ACCEPTED`
-- `JOIN_REJECTED`
-- `GAME_STARTED`
-- `GAME_STATE`
-- `FLAG_PICKED_UP`
-- `FLAG_STOLEN`
-- `PLAYER_DISCONNECTED`
-- `GAME_OVER`
-- `ERROR`
+Servidor hacia cliente (TCP): `JOIN_ACCEPTED`, `JOIN_REJECTED`, `LOBBY_STATE`,
+`GAME_COUNTDOWN`, `GAME_STARTED`, `GAME_STATE`, `FLAG_PICKED_UP`, `FLAG_STOLEN`,
+`PLAYER_DISCONNECTED`, `GAME_OVER`, `ERROR`.
 
 ## 34. Compatibilidad entre lenguajes
 
-Cada grupo podrá usar cualquier lenguaje. Ejemplos de soporte TCP:
+Cada proyecto podrá usar cualquier lenguaje. Ejemplos de soporte TCP y UDP:
 
-| Lenguaje | API |
-|---|---|
-| C# | `TcpClient` / `TcpListener` |
-| Java | `Socket` / `ServerSocket` |
-| Python | `socket` |
-| C/C++ | sockets del sistema |
-| Go | `net` |
-| Node.js | `net` |
-| Rust | `TcpStream` / `TcpListener` |
+| Lenguaje | TCP | UDP |
+|---|---|---|
+| C# | `TcpClient` / `TcpListener` | `UdpClient` |
+| Java | `Socket` / `ServerSocket` | `DatagramSocket` |
+| Python | `socket` | `socket` con `SO_BROADCAST` |
+| C/C++ | sockets del sistema | sockets del sistema |
+| Go | `net.Dial` / `net.Listen` | `net.ListenPacket` |
+| Node.js | `net` | `dgram` |
+| Rust | `TcpStream` / `TcpListener` | `UdpSocket` |
 
-También podrán utilizar librerías, siempre que la conexión final sea
-**TCP + UTF-8 + JSON por línea**.
-
-Un cliente que utilice UDP o WebSocket no será compatible directamente con el
-servidor definido en este documento.
+Podrán usarse librerías, siempre que la conexión final sea **TCP + UTF-8 + JSON
+por línea** para la partida y **UDP broadcast + JSON** para el descubrimiento.
 
 ## 35. Prueba mínima de compatibilidad
 
-Antes de desarrollar el juego completo, cada grupo deberá comprobar:
+Antes de desarrollar el juego completo, cada proyecto deberá comprobar:
 
-1. Conexión TCP al servidor.
-2. Envío de un mensaje `JOIN`.
-3. Recepción de `JOIN_ACCEPTED`.
-4. Envío de `CHANGE_DIRECTION`.
-5. Recepción de `GAME_STATE`.
-6. Lectura correcta de múltiples mensajes consecutivos.
-7. Cierre correcto de la conexión.
+1. Envío de `DISCOVER_REQUEST` por broadcast y recepción de al menos un
+   `DISCOVER_RESPONSE`.
+2. Conexión TCP al servidor descubierto.
+3. Envío de `JOIN` y recepción de `JOIN_ACCEPTED`.
+4. Recepción de `LOBBY_STATE` al entrar otro jugador.
+5. Recepción de `GAME_COUNTDOWN` y `GAME_STARTED`.
+6. Envío de `INPUT` y comprobación de que la posición cambia en el `GAME_STATE`.
+7. Envío de `INTERACT` cerca de la bandera y recepción de `FLAG_PICKED_UP`.
+8. Lectura correcta de múltiples mensajes consecutivos.
+9. Cierre correcto de la conexión y recepción de `PLAYER_DISCONNECTED` del otro
+   lado.
 
 ## 36. Resumen técnico
 
 | | |
 |---|---|
 | Arquitectura | Cliente-servidor |
-| Servidor | Único |
-| Transporte | TCP |
-| Formato | JSON |
-| Codificación | UTF-8 |
-| Separación | Un mensaje por línea |
-| Terminador | `\n` |
-| Coordenadas | Fila y columna desde cero |
-| Movimiento | Continuo |
-| Direcciones | `UP`, `DOWN`, `LEFT`, `RIGHT` |
-| Sincronización | Ciclos controlados por el servidor |
-| Intervalo inicial | 200 ms |
-| Protección por robo | 1000 ms |
+| Servidor | Único, no juega, solo muestra |
+| Descubrimiento | UDP broadcast, puerto 5001 |
+| Partida | TCP, puerto 5000 |
+| Formato | JSON, UTF-8, un mensaje por línea en TCP |
+| Terminador TCP | `\n` |
+| Mapa | Plano continuo de 2000 × 2000 unidades |
+| Origen | Centro del mapa y del círculo |
+| Ejes | `x` a la derecha, `y` hacia abajo |
+| Círculo central | Radio 500 |
+| Movimiento | Libre, vector de intención de `-1` a `1` |
+| Velocidad | 220 unidades por segundo |
+| Interacción | Tecla, alcance 60 unidades |
+| Inmunidad | No existe |
+| Ciclo | 50 ms, 20 por segundo |
+| Jugadores | Hasta 100 |
 | Estado oficial | Servidor |
-| Lenguaje | Libre |
-| Librerías | Libres |
-| Protocolo | Versión 1.0 |
+| Lenguaje y librerías | Libres |
+| Protocolo | Versión 2.0 |
 
-Todos los grupos deberán respetar esta especificación para garantizar que sus
-implementaciones puedan comunicarse entre sí.
+Todos los proyectos deberán respetar esta especificación para garantizar que
+puedan comunicarse entre sí.
