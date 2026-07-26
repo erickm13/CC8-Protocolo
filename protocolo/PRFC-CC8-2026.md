@@ -4,26 +4,38 @@
 
 | | |
 |---|---|
-| Versión del documento | `2.0.0` |
-| `protocolVersion` en los mensajes | `2.0` |
-| Estado | Vigente |
+| Versión del documento | `3.0.0` |
+| `protocolVersion` (byte) en los mensajes | `3` |
+| Estado | Propuesto |
 | Última modificación | 2026-07-23 |
-| Reemplaza a | `1.0.x` (rejilla de casillas), incompatible |
+| Reemplaza a | `2.0.x` (transporte JSON, movimiento vectorial), incompatible |
 
-> El número de versión del documento y el valor de `protocolVersion` que viaja en
-> los mensajes **no son lo mismo**. El documento puede llegar a `2.0.7` por
-> aclaraciones de redacción mientras los mensajes siguen diciendo `"2.0"`. El
-> valor en los mensajes solo cambia cuando se rompe la compatibilidad.
+> El número de versión del documento y el byte de versión que viaja en los
+> mensajes **no son lo mismo**. El documento puede llegar a `3.0.7` por
+> aclaraciones de redacción mientras los mensajes siguen usando el byte `3`. El
+> byte solo cambia cuando se rompe la compatibilidad.
 
 ## Sobre esta versión
 
-La versión 1.0 describía el juego sobre una rejilla de casillas con movimiento
-tipo serpiente. **Contradecía el reglamento del curso** en la geometría, el
-movimiento, la forma de tomar y robar la bandera, y la inmunidad tras el robo.
-Esta versión reescribe el protocolo sobre el reglamento y no es compatible con la
-anterior. Las citas por sección de la 1.0 no se corresponden con las de esta.
+Cambia dos cosas respecto de la 2.0:
 
-Las secciones se citan por número: §14 (robo de la bandera), §29.5 (mensaje
+- **Transporte binario en vez de JSON.** Los mensajes viajan como bytes, no como
+  texto. Un `GAME_STATE` de dos jugadores pasa de ~400 bytes a 50.
+- **Movimiento en 4 direcciones en vez de vectorial.** El reglamento habla de
+  "desplazarse libremente utilizando los controles del teclado" y no menciona
+  diagonales. Se implementa como arriba, abajo, izquierda y derecha, que es lo
+  que dice el reglamento sin agregarle nada, y elimina la ambigüedad de cómo se
+  normaliza una diagonal entre 13 implementaciones distintas.
+
+El juego, los estados, la victoria y el descubrimiento son los mismos. Las citas
+por sección de la 2.0 no se corresponden con las de esta.
+
+Este documento es exhaustivo hasta el byte a propósito: con un formato binario,
+las 13 implementaciones tienen que acertar el mismo layout, y un solo grupo que
+lea un entero al revés queda incompatible con todos. Se recomienda conservar en
+paralelo un modo de texto para depurar (§37).
+
+Las secciones se citan por número: §14 (robo de la bandera), §29.6 (mensaje
 `GAME_STATE`).
 
 ---
@@ -68,7 +80,7 @@ Cada proyecto deberá poder ejecutarse en dos modos.
 **Modo servidor.** Hospeda la partida, mantiene el estado oficial y **únicamente
 muestra** el juego de todos los jugadores conectados. La máquina que corre el
 servidor **no participa como jugador**: no tiene entidad en el mapa, no aparece
-en `players` y no puede tomar la bandera.
+en la lista de jugadores y no puede tomar la bandera.
 
 **Modo cliente.** Se conecta a un servidor y es el único modo en el que se juega
 desde esa máquina.
@@ -80,7 +92,7 @@ servidor deberá aceptar clientes de cualquier otro proyecto.
 
 El mapa será un plano continuo, no una rejilla.
 
-- Las coordenadas se expresan en **unidades de mundo**, con decimales.
+- Las coordenadas se expresan en **unidades de mundo**, con dos decimales.
 - El origen `(0, 0)` es el centro del mapa y también el centro del círculo.
 - El eje **x** crece hacia la derecha.
 - El eje **y** crece hacia **abajo**, siguiendo la convención de pantalla.
@@ -91,9 +103,10 @@ Las coordenadas válidas van de `-mapSize / 2` a `+mapSize / 2` en ambos ejes.
 Ningún jugador podrá salir del mapa: el servidor recorta la posición a esos
 límites.
 
-La conversión de unidades de mundo a píxeles es decisión de cada cliente. Un
-proyecto ASCII, uno 2D y uno 3D pueden verse distintos y seguir siendo
-compatibles.
+Que el mapa sea continuo y el movimiento de 4 direcciones no se contradice: el
+jugador se mueve en pasos pequeños en una de las cuatro direcciones, no salta de
+casilla en casilla. La conversión de unidades de mundo a píxeles es decisión de
+cada cliente.
 
 ## 6. El círculo central
 
@@ -121,12 +134,12 @@ Existirá una única bandera, ubicada exactamente en el centro del mapa, en `(0,
 
 Estados posibles:
 
-| Estado | Significado |
-|---|---|
-| `AVAILABLE` | Está en el suelo y nadie la lleva. |
-| `CARRIED` | Un jugador la transporta. |
-| `DROPPED` | Cayó porque su portador se desconectó. |
-| `OUTSIDE` | Salió del círculo y la partida terminó. |
+| Estado | Código (§25) | Significado |
+|---|---|---|
+| `AVAILABLE` | `0x01` | Está en el suelo y nadie la lleva. |
+| `CARRIED` | `0x02` | Un jugador la transporta. |
+| `DROPPED` | `0x03` | Cayó porque su portador se desconectó. |
+| `OUTSIDE` | `0x04` | Salió del círculo y la partida terminó. |
 
 Mientras está `CARRIED`, la posición de la bandera es la del portador.
 
@@ -141,13 +154,12 @@ Cada jugador tendrá:
 
 | Campo | Tipo | Descripción |
 |---|---|---|
-| `playerId` | string | Identificador único asignado por el servidor. |
-| `name` | string | Nombre visible del jugador. |
-| `x` | number | Posición horizontal en unidades de mundo. |
-| `y` | number | Posición vertical en unidades de mundo. |
-| `moveX` | number | Componente horizontal de la intención de movimiento, de `-1` a `1`. |
-| `moveY` | number | Componente vertical de la intención de movimiento, de `-1` a `1`. |
-| `hasFlag` | boolean | Indica si lleva la bandera. |
+| `playerId` | u16 | Identificador único asignado por el servidor. El `0` significa "ninguno". |
+| `name` | str | Nombre visible del jugador. |
+| `x` | i32 | Posición horizontal (unidades × 100, ver §24). |
+| `y` | i32 | Posición vertical (unidades × 100). |
+| `direction` | u8 | Dirección activa (§10). |
+| `hasFlag` | bool | Indica si lleva la bandera. |
 
 No existe campo de protección ni de inmunidad. El reglamento no las contempla
 (§14).
@@ -159,36 +171,45 @@ Cada jugador aparecerá en una posición aleatoria **fuera del círculo**.
 El servidor elegirá un ángulo aleatorio y colocará al jugador a una distancia del
 origen de `circleRadius + spawnMargin`, dentro de los límites del mapa.
 
-Todos los jugadores comienzan quietos: `moveX` y `moveY` en `0`. Ningún jugador
+Todos los jugadores comienzan quietos (`direction = NONE`). Ningún jugador
 comienza con la bandera.
 
 ## 10. Movimiento
 
-El movimiento es libre y continuo. No hay direcciones fijas ni casillas.
+El movimiento es en cuatro direcciones. No hay diagonales.
 
-El cliente envía su **intención de movimiento** como un vector `(moveX, moveY)`
-con componentes entre `-1` y `1`. Ese vector representa las teclas que el jugador
-tiene presionadas en ese instante; qué teclas son es decisión de cada proyecto.
+El reglamento del curso indica que los jugadores se desplazan libremente con los
+controles del teclado y no menciona movimiento diagonal. Este protocolo lo
+implementa como cuatro direcciones para no introducir una regla que el reglamento
+no define y que cada implementación podría interpretar distinto.
+
+Direcciones y su código:
+
+| Dirección | Código | Efecto por ciclo |
+|---|---|---|
+| `NONE` | `0x00` | El jugador está quieto. |
+| `UP` | `0x01` | `y` disminuye (el eje `y` crece hacia abajo, §5). |
+| `DOWN` | `0x02` | `y` aumenta. |
+| `LEFT` | `0x03` | `x` disminuye. |
+| `RIGHT` | `0x04` | `x` aumenta. |
 
 Reglas:
 
-- Si la magnitud del vector es mayor que `1`, el servidor la normaliza a `1`. Así
-  moverse en diagonal no es más rápido.
-- Un vector `(0, 0)` significa que el jugador está quieto. Detenerse es una
-  acción válida.
-- El vector se mantiene vigente hasta que el cliente envíe otro. El cliente no
-  necesita reenviarlo en cada ciclo.
-- El cliente **nunca** envía posiciones. Solo intención.
+- El cliente envía su **dirección activa** con un mensaje `INPUT` (§28.2). Esa
+  dirección se mantiene vigente hasta que envíe otra; el cliente no necesita
+  reenviarla en cada ciclo.
+- `NONE` significa quieto. Detenerse es una acción válida.
+- El cliente **nunca** envía posiciones. Solo la dirección.
 
-En cada ciclo el servidor mueve a cada jugador así:
+En cada ciclo el servidor mueve a cada jugador un paso en su dirección activa:
 
 ```
-dt = tickIntervalMs / 1000
-x  = x + moveX * playerSpeed * dt
-y  = y + moveY * playerSpeed * dt
+paso = playerSpeed * tickIntervalMs / 1000
 ```
 
-y después recorta la posición a los límites del mapa.
+Por ejemplo, con dirección `RIGHT`, `x` aumenta en `paso`; con `UP`, `y`
+disminuye en `paso`. Después el servidor recorta la posición a los límites del
+mapa.
 
 Los jugadores **no colisionan entre sí**. Pueden ocupar el mismo punto. La
 cercanía solo importa para interactuar (§12).
@@ -214,6 +235,10 @@ tecla concreta es decisión de cada proyecto.
 El servidor procesará la interacción si la distancia entre el jugador y el
 objetivo es menor o igual a `interactionRadius`.
 
+Interactuar y moverse son mensajes distintos e independientes: un jugador puede
+estar moviéndose y robar en el mismo instante. Por eso la dirección va en el
+`INPUT` y la acción de interactuar en su propio `INTERACT`.
+
 Si el jugador envía varios `INTERACT` antes del mismo ciclo, el servidor
 procesará **únicamente uno**. Esto no es una inmunidad: es evitar que un cliente
 que envía cien mensajes por segundo tenga ventaja sobre uno que envía veinte.
@@ -233,7 +258,7 @@ y la distancia entre el jugador y la bandera es menor o igual a
 - deja de estar en el suelo y pasa a estado `CARRIED`;
 - desde ese momento acompaña al jugador.
 
-El servidor envía `FLAG_PICKED_UP` (§29.6).
+El servidor envía `FLAG_PICKED_UP` (§29.7).
 
 ## 14. Robo de la bandera
 
@@ -253,7 +278,7 @@ los dos cambia de posición y ninguno es eliminado.
 La bandera podrá cambiar de dueño tantas veces como haga falta durante la
 partida, incluso en ciclos consecutivos.
 
-El servidor envía `FLAG_STOLEN` (§29.7).
+El servidor envía `FLAG_STOLEN` (§29.8).
 
 ## 15. Conflictos simultáneos
 
@@ -292,7 +317,7 @@ jugadores. Cuando se cumple:
 Si un jugador se desconecta:
 
 - será eliminado del mapa;
-- dejará de aparecer en `players` a partir del siguiente `GAME_STATE`;
+- dejará de aparecer en la lista de jugadores a partir del siguiente `GAME_STATE`;
 - el servidor notificará a los demás con `PLAYER_DISCONNECTED` (§29.9).
 
 Si el jugador llevaba la bandera:
@@ -305,13 +330,13 @@ No habrá reconexión automática.
 
 ## 18. Estados de la partida
 
-| Estado | Significado |
-|---|---|
-| `WAITING` | Acepta jugadores. Aparece en el descubrimiento. |
-| `STARTING` | Cuenta regresiva en curso. Ya no acepta jugadores. |
-| `RUNNING` | La partida está en juego. |
-| `FINISHED` | Existe un ganador. |
-| `CANCELLED` | El servidor canceló la partida. |
+| Estado | Código (§25) | Significado |
+|---|---|---|
+| `WAITING` | `0x01` | Acepta jugadores. Aparece en el descubrimiento. |
+| `STARTING` | `0x02` | Cuenta regresiva en curso. Ya no acepta jugadores. |
+| `RUNNING` | `0x03` | La partida está en juego. |
+| `FINISHED` | `0x04` | Existe un ganador. |
+| `CANCELLED` | `0x05` | El servidor canceló la partida. |
 
 No se aceptarán jugadores después de que inicie la cuenta regresiva.
 
@@ -391,346 +416,337 @@ un proceso puente que hable TCP y UDP del lado del sistema operativo.
 
 ## 23. Formato de comunicación
 
-Todos los mensajes, TCP y UDP, utilizarán **JSON** codificado en **UTF-8**.
+Los mensajes viajan como **bytes**, no como texto.
 
-Sobre **TCP**: un mensaje JSON por línea, terminado en `\n`. El receptor lee hasta
-encontrar `\n`. El carácter `\n` no forma parte del JSON. No se permiten saltos de
-línea dentro del mensaje.
+### 23.1 Tipos base
 
-Ejemplo transmitido:
+Todos los enteros de más de un byte van en **big-endian** (el byte más
+significativo primero), que es el orden de red. En Java y las APIs de sockets es
+el predeterminado; en C#, Go y Rust hay que pedirlo. Es el error más común: si
+algo no conecta, revisen esto primero.
+
+| Nombre | Bytes | Rango | Notas |
+|---|---|---|---|
+| `u8` | 1 | 0 a 255 | entero sin signo |
+| `u16` | 2 | 0 a 65 535 | big-endian |
+| `u32` | 4 | 0 a 4 294 967 295 | big-endian |
+| `i16` | 2 | −32 768 a 32 767 | complemento a dos, big-endian |
+| `i32` | 4 | −2 147 483 648 a 2 147 483 647 | complemento a dos, big-endian |
+| `str` | 1 + N | — | un `u8` de longitud, luego N bytes UTF-8 |
+| `bool` | 1 | 0 o 1 | cualquier valor distinto de 0 se lee como verdadero |
+
+No se usan números de punto flotante. Todas las coordenadas son enteros (§24).
+
+### 23.2 Enmarcado sobre TCP
+
+El flujo TCP no tiene fronteras de mensaje, así que cada mensaje va precedido por
+su longitud:
 
 ```
-{"type":"INTERACT","protocolVersion":"2.0","gameId":"GAME-001","playerId":"P07"}\n
++--------+--------------------------+
+| u16 N  | cuerpo del mensaje (N)   |
++--------+--------------------------+
 ```
 
-Sobre **UDP**: un datagrama contiene exactamente un mensaje JSON. El `\n` final es
-opcional y el receptor debe tolerarlo.
+El receptor lee 2 bytes (obtiene N), luego lee **exactamente** N bytes, y repite.
+"Exactamente N" importa: TCP puede entregar la lectura partida en varios pedazos,
+hay que insistir hasta juntar N.
 
-## 24. Convenciones JSON
+El máximo de `u16` deja mensajes de hasta 65 535 bytes, de sobra para un
+`GAME_STATE` de 100 jugadores (~1 500 bytes).
 
-Los nombres de campos utilizarán **camelCase**: `playerId`, `gameId`, `moveX`,
-`circleRadius`.
+### 23.3 Sobre UDP
 
-Tipos permitidos:
+Cada datagrama es un mensaje completo, sin prefijo de longitud.
 
-- texto: JSON string;
-- números: JSON number, enteros o con decimales;
-- verdadero o falso: JSON boolean;
-- listas: JSON array;
-- objetos: JSON object;
-- ausencia de valor: JSON null.
+### 23.4 Encabezado común
 
-Los valores de enumeraciones utilizarán mayúsculas: `RUNNING`, `CARRIED`,
-`AVAILABLE`.
+Todo mensaje empieza con dos bytes:
 
-Las coordenadas y demás números con decimales se enviarán **redondeados a dos
-decimales**. Es suficiente para dibujar y mantiene los mensajes cortos. El emisor
-redondea; el receptor acepta cualquier cantidad de decimales.
-
-## 25. Estructura común de mensajes
-
-Todos los mensajes deberán contener:
-
-```json
-{
-  "type": "MESSAGE_TYPE",
-  "protocolVersion": "2.0"
-}
+```
++------+------+ ...
+| u8   | u8   |
+| tipo | ver  |
++------+------+
 ```
 
-Campos comunes adicionales cuando corresponda: `gameId`, `playerId`, `tick`.
+- **tipo**: identifica el mensaje, según la tabla de §26.
+- **ver**: versión del protocolo, `3`. El receptor rechaza cualquier otro valor
+  con un `ERROR` de código `UNSUPPORTED_PROTOCOL_VERSION` (§29.12).
 
-El servidor deberá rechazar versiones de protocolo incompatibles.
+El `gameId` **no viaja** en los mensajes TCP: una conexión TCP pertenece a una
+sola partida. Solo aparece en el descubrimiento UDP.
 
-## 26. Identificadores
+## 24. Coordenadas
 
-- Jugador, asignado por el servidor: `P01`, `P02`, `P03`.
-- Partida, asignado por el servidor: `GAME-001`.
-- Ciclo: entero consecutivo desde `1`. El valor `tick` permite identificar el
-  estado más reciente.
+Las coordenadas del mundo tienen dos decimales. En binario se mandan como el
+entero de multiplicar por 100:
+
+```
+valor transmitido = round(coordenada × 100)   como i32
+```
+
+Ejemplo: `x = -120.75` viaja como `i32` con valor `-12075`. El receptor divide
+por 100 al leer.
+
+Se usa `i32` porque un mapa de 2000 unidades llega a ±1000, que por 100 son
+±100 000, muy por encima del tope de `i16`.
+
+## 25. Enumeraciones
+
+Los estados y motivos que antes eran texto pasan a un `u8`.
+
+- **Estado de la partida**: tabla de §18.
+- **Estado de la bandera**: tabla de §7.
+- **Dirección**: tabla de §10.
+- **Motivo de `JOIN_REJECTED`**: `GAME_ALREADY_STARTED` = `0x01`, `GAME_FULL` =
+  `0x02`, `INVALID_NAME` = `0x03`, `UNSUPPORTED_PROTOCOL_VERSION` = `0x04`.
+- **Motivo de `GAME_OVER`**: `EXITED_CIRCLE_WITH_FLAG` = `0x01`.
+- **Código de `ERROR`**: tabla de §29.12.
+
+## 26. Tabla de tipos de mensaje
+
+| Código | Mensaje | Dirección |
+|---|---|---|
+| `0x01` | `DISCOVER_REQUEST` | cliente → broadcast (UDP) |
+| `0x02` | `DISCOVER_RESPONSE` | servidor → cliente (UDP) |
+| `0x10` | `JOIN` | cliente → servidor |
+| `0x11` | `INPUT` | cliente → servidor |
+| `0x12` | `INTERACT` | cliente → servidor |
+| `0x13` | `LEAVE` | cliente → servidor |
+| `0x20` | `JOIN_ACCEPTED` | servidor → cliente |
+| `0x21` | `JOIN_REJECTED` | servidor → cliente |
+| `0x22` | `LOBBY_STATE` | servidor → cliente |
+| `0x23` | `GAME_COUNTDOWN` | servidor → cliente |
+| `0x24` | `GAME_STARTED` | servidor → cliente |
+| `0x25` | `GAME_STATE` | servidor → cliente |
+| `0x26` | `FLAG_PICKED_UP` | servidor → cliente |
+| `0x27` | `FLAG_STOLEN` | servidor → cliente |
+| `0x28` | `PLAYER_DISCONNECTED` | servidor → cliente |
+| `0x29` | `GAME_OVER` | servidor → cliente |
+| `0x2A` | `ERROR` | servidor → cliente |
 
 ## 27. Mensajes de descubrimiento (UDP)
 
-### 27.1 DISCOVER_REQUEST
+### 27.1 DISCOVER_REQUEST (0x01)
 
-Enviado por el cliente a la dirección de broadcast.
+Solo el encabezado. 2 bytes.
 
-```json
-{
-  "type": "DISCOVER_REQUEST",
-  "protocolVersion": "2.0"
-}
+```
+01 03
 ```
 
-### 27.2 DISCOVER_RESPONSE
+### 27.2 DISCOVER_RESPONSE (0x02)
 
-Enviado por cada servidor en estado `WAITING`, por UDP directo al remitente.
-
-```json
-{
-  "type": "DISCOVER_RESPONSE",
-  "protocolVersion": "2.0",
-  "gameId": "GAME-001",
-  "serverName": "Partida de Ana",
-  "tcpPort": 5000,
-  "state": "WAITING",
-  "playerCount": 3,
-  "maximumPlayers": 100
-}
+```
+u8   tipo = 0x02
+u8   ver  = 0x03
+u16  gameId
+str  serverName
+u16  tcpPort
+u8   state           (§18)
+u16  playerCount
+u16  maximumPlayers
 ```
 
-El cliente obtiene la dirección IP del servidor del propio datagrama; no viaja en
-el JSON, porque un servidor con varias interfaces no sabe cuál ve el cliente.
+La IP del servidor no viaja en el mensaje: el cliente la obtiene del datagrama
+recibido, porque un servidor con varias interfaces no sabe cuál ve el cliente.
 
 ## 28. Mensajes del cliente al servidor (TCP)
 
-### 28.1 JOIN
+### 28.1 JOIN (0x10)
 
-Solicita ingresar a la partida.
-
-```json
-{
-  "type": "JOIN",
-  "protocolVersion": "2.0",
-  "name": "Pepito"
-}
+```
+u8   tipo = 0x10
+u8   ver  = 0x03
+str  name        (1 a 20 bytes UTF-8)
 ```
 
-Campos: `name`, texto no vacío.
+El nombre debe tener entre 1 y 20 caracteres tras quitar espacios. Fuera de ese
+rango, el servidor responde `JOIN_REJECTED` con `INVALID_NAME`. Los nombres no
+tienen que ser únicos; la identidad es el `playerId`.
 
-### 28.2 INPUT
+### 28.2 INPUT (0x11)
 
-Actualiza la intención de movimiento. Se envía cuando cambia, no en cada cuadro.
+Actualiza la dirección activa. Se envía cuando cambia, no en cada cuadro.
 
-```json
-{
-  "type": "INPUT",
-  "protocolVersion": "2.0",
-  "gameId": "GAME-001",
-  "playerId": "P07",
-  "moveX": 0.0,
-  "moveY": -1.0
-}
+```
+u8   tipo = 0x11
+u8   ver  = 0x03
+u16  playerId
+u8   direction   (§10)
 ```
 
-`moveX` y `moveY` van de `-1` a `1`. El ejemplo anterior es "arriba", porque el
-eje `y` crece hacia abajo (§5).
+**5 bytes.** Ejemplo, P07 moviéndose hacia arriba (`direction = UP = 0x01`):
+
+```
+11 03 00 07 01
+```
 
 Si el cliente envía varios `INPUT` antes del mismo ciclo, solo se aplica el
 último.
 
-### 28.3 INTERACT
+### 28.3 INTERACT (0x12)
 
 El jugador presionó la tecla de interacción.
 
-```json
-{
-  "type": "INTERACT",
-  "protocolVersion": "2.0",
-  "gameId": "GAME-001",
-  "playerId": "P07"
-}
+```
+u8   tipo = 0x12
+u8   ver  = 0x03
+u16  playerId
 ```
 
-El cliente no indica el objetivo. El servidor decide qué corresponde según §13 y
-§14.
+**4 bytes.** El cliente no indica el objetivo; el servidor decide qué corresponde
+según §13 y §14.
 
-### 28.4 LEAVE
+### 28.4 LEAVE (0x13)
 
 El jugador abandona voluntariamente.
 
-```json
-{
-  "type": "LEAVE",
-  "protocolVersion": "2.0",
-  "gameId": "GAME-001",
-  "playerId": "P07"
-}
+```
+u8   tipo = 0x13
+u8   ver  = 0x03
+u16  playerId
 ```
 
 ## 29. Mensajes del servidor al cliente (TCP)
 
-### 29.1 JOIN_ACCEPTED
+### 29.1 JOIN_ACCEPTED (0x20)
 
-```json
-{
-  "type": "JOIN_ACCEPTED",
-  "protocolVersion": "2.0",
-  "playerId": "P07",
-  "gameId": "GAME-001"
+```
+u8   tipo = 0x20
+u8   ver  = 0x03
+u16  playerId    (el asignado a este cliente)
+u16  gameId
+```
+
+### 29.2 JOIN_REJECTED (0x21)
+
+```
+u8   tipo = 0x21
+u8   ver  = 0x03
+u8   reason      (§25)
+```
+
+### 29.3 LOBBY_STATE (0x22)
+
+El patrón para toda lista de longitud variable es un `u8` con la cantidad,
+seguido de esa cantidad de bloques.
+
+```
+u8   tipo = 0x22
+u8   ver  = 0x03
+u8   state           (§18)
+u8   count
+count × {
+  u16  playerId
+  str  name
 }
 ```
 
-### 29.2 JOIN_REJECTED
+### 29.4 GAME_COUNTDOWN (0x23)
 
-```json
-{
-  "type": "JOIN_REJECTED",
-  "protocolVersion": "2.0",
-  "reason": "GAME_ALREADY_STARTED"
+```
+u8   tipo = 0x23
+u8   ver  = 0x03
+u8   secondsRemaining
+```
+
+### 29.5 GAME_STARTED (0x24)
+
+```
+u8   tipo = 0x24
+u8   ver  = 0x03
+i32  mapSize × 100
+i32  circleRadius × 100
+i32  playerRadius × 100
+i32  playerSpeed × 100
+i32  interactionRadius × 100
+u16  tickIntervalMs
+u8   flagStatus       (§7)
+u16  flagCarrierId    (0 = ninguno)
+i32  flagX × 100
+i32  flagY × 100
+u8   count
+count × {
+  u16  playerId
+  str  name
+  i32  x × 100
+  i32  y × 100
+  u8   direction
+  bool hasFlag
 }
 ```
 
-Motivos posibles: `GAME_ALREADY_STARTED`, `GAME_FULL`, `INVALID_NAME`,
-`UNSUPPORTED_PROTOCOL_VERSION`.
+### 29.6 GAME_STATE (0x25)
 
-### 29.3 LOBBY_STATE
+El mensaje que más viaja: 20 veces por segundo a cada cliente. El bloque de
+jugador aquí **no incluye `name`** —el cliente ya lo recibió en `GAME_STARTED` o
+`LOBBY_STATE` y lo asocia por `playerId`—, lo que baja cada jugador a 12 bytes.
 
-Enviado cada vez que la lista de jugadores cambia durante `WAITING`.
-
-```json
-{
-  "type": "LOBBY_STATE",
-  "protocolVersion": "2.0",
-  "gameId": "GAME-001",
-  "state": "WAITING",
-  "players": [
-    { "playerId": "P01", "name": "Ana" },
-    { "playerId": "P02", "name": "Beto" }
-  ]
+```
+u8   tipo = 0x25
+u8   ver  = 0x03
+u32  tick
+u8   flagStatus       (§7)
+u16  flagCarrierId    (0 = ninguno)
+i32  flagX × 100
+i32  flagY × 100
+u8   count
+count × {
+  u16  playerId
+  i32  x × 100
+  i32  y × 100
+  u8   direction
+  bool hasFlag
 }
 ```
 
-### 29.4 GAME_COUNTDOWN
+Con dos jugadores, el cuerpo ocupa **42 bytes** (2 encabezado + 4 tick + 11
+bandera + 1 count + 2×12 jugadores), más 2 del prefijo de longitud: 44 en total. El mismo
+mensaje en la v2.0 JSON eran ~400. Con 100 jugadores, el cuerpo son 1 218 bytes
+contra ~12 300.
 
-Enviado una vez por segundo durante `STARTING`.
+El cliente deberá mostrar siempre el estado con el `tick` más reciente e ignorar
+los que lleguen con un `tick` menor al último recibido.
 
-```json
-{
-  "type": "GAME_COUNTDOWN",
-  "protocolVersion": "2.0",
-  "gameId": "GAME-001",
-  "secondsRemaining": 3
-}
+### 29.7 FLAG_PICKED_UP (0x26)
+
+```
+u8   tipo = 0x26
+u8   ver  = 0x03
+u32  tick
+u16  playerId
 ```
 
-### 29.5 GAME_STARTED
+### 29.8 FLAG_STOLEN (0x27)
 
-Envía la configuración completa al iniciar.
-
-```json
-{
-  "type": "GAME_STARTED",
-  "protocolVersion": "2.0",
-  "gameId": "GAME-001",
-  "mapSize": 2000,
-  "circleRadius": 500,
-  "playerRadius": 15,
-  "playerSpeed": 220,
-  "interactionRadius": 60,
-  "tickIntervalMs": 50,
-  "flag": {
-    "x": 0,
-    "y": 0,
-    "status": "AVAILABLE",
-    "carrierId": null
-  },
-  "players": [
-    {
-      "playerId": "P01",
-      "name": "Ana",
-      "x": -410.5,
-      "y": -410.5,
-      "moveX": 0,
-      "moveY": 0,
-      "hasFlag": false
-    }
-  ]
-}
 ```
-
-### 29.6 GAME_STATE
-
-Enviado al final de cada ciclo. Es el estado oficial.
-
-```json
-{
-  "type": "GAME_STATE",
-  "protocolVersion": "2.0",
-  "gameId": "GAME-001",
-  "tick": 185,
-  "players": [
-    {
-      "playerId": "P01",
-      "name": "Ana",
-      "x": -120.75,
-      "y": 44.2,
-      "moveX": 1,
-      "moveY": 0,
-      "hasFlag": false
-    },
-    {
-      "playerId": "P07",
-      "name": "Edgar",
-      "x": 318.4,
-      "y": -95.1,
-      "moveX": 0.71,
-      "moveY": -0.71,
-      "hasFlag": true
-    }
-  ],
-  "flag": {
-    "status": "CARRIED",
-    "x": 318.4,
-    "y": -95.1,
-    "carrierId": "P07"
-  }
-}
-```
-
-El arreglo `players` contiene únicamente jugadores conectados. El cliente deberá
-mostrar siempre el estado con el `tick` más reciente e ignorar los que lleguen
-con un `tick` menor al último recibido.
-
-### 29.7 FLAG_PICKED_UP
-
-```json
-{
-  "type": "FLAG_PICKED_UP",
-  "protocolVersion": "2.0",
-  "gameId": "GAME-001",
-  "tick": 90,
-  "playerId": "P07"
-}
-```
-
-### 29.8 FLAG_STOLEN
-
-```json
-{
-  "type": "FLAG_STOLEN",
-  "protocolVersion": "2.0",
-  "gameId": "GAME-001",
-  "tick": 105,
-  "previousCarrierId": "P01",
-  "newCarrierId": "P07"
-}
+u8   tipo = 0x27
+u8   ver  = 0x03
+u32  tick
+u16  previousCarrierId
+u16  newCarrierId
 ```
 
 No lleva tiempo de protección: no existe (§14).
 
-### 29.9 PLAYER_DISCONNECTED
+### 29.9 PLAYER_DISCONNECTED (0x28)
 
-```json
-{
-  "type": "PLAYER_DISCONNECTED",
-  "protocolVersion": "2.0",
-  "gameId": "GAME-001",
-  "playerId": "P07"
-}
+```
+u8   tipo = 0x28
+u8   ver  = 0x03
+u16  playerId
 ```
 
-### 29.10 GAME_OVER
+### 29.10 GAME_OVER (0x29)
 
-```json
-{
-  "type": "GAME_OVER",
-  "protocolVersion": "2.0",
-  "gameId": "GAME-001",
-  "winnerId": "P07",
-  "winnerName": "Edgar",
-  "reason": "EXITED_CIRCLE_WITH_FLAG"
-}
+```
+u8   tipo = 0x29
+u8   ver  = 0x03
+u16  winnerId
+str  winnerName
+u8   reason          (§25; siempre EXITED_CIRCLE_WITH_FLAG)
 ```
 
 ### 29.11 Orden de los mensajes en un mismo ciclo
@@ -743,20 +759,31 @@ En el ciclo de la victoria se envía el `GAME_STATE` final y **después**
 `GAME_OVER`. Sin ese último estado el cliente nunca dibujaría el momento en que
 el ganador cruza el borde.
 
-### 29.12 ERROR
+### 29.12 ERROR (0x2A)
 
-```json
-{
-  "type": "ERROR",
-  "protocolVersion": "2.0",
-  "code": "INVALID_INPUT",
-  "description": "El vector de movimiento no es válido."
-}
+```
+u8   tipo = 0x2A
+u8   ver  = 0x03
+u8   code
+str  description     (puede ir vacío: longitud 0)
 ```
 
-Códigos mínimos: `INVALID_MESSAGE`, `INVALID_JSON`, `INVALID_INPUT`,
-`UNKNOWN_PLAYER`, `GAME_NOT_STARTED`, `GAME_ALREADY_STARTED`, `GAME_FINISHED`,
-`UNSUPPORTED_PROTOCOL_VERSION`.
+Códigos:
+
+| Valor | Código |
+|---|---|
+| `0x01` | `INVALID_MESSAGE` |
+| `0x02` | `INVALID_ENCODING` |
+| `0x03` | `INVALID_INPUT` |
+| `0x04` | `UNKNOWN_PLAYER` |
+| `0x05` | `GAME_NOT_STARTED` |
+| `0x06` | `GAME_ALREADY_STARTED` |
+| `0x07` | `GAME_FINISHED` |
+| `0x08` | `UNSUPPORTED_PROTOCOL_VERSION` |
+
+`INVALID_ENCODING` se envía cuando un mensaje no se puede decodificar: longitud
+declarada que no cuadra, string que se sale del buffer, dirección o tipo
+desconocidos.
 
 Un `INTERACT` que no cumple condiciones **no** genera error (§12).
 
@@ -766,7 +793,7 @@ En cada ciclo, el servidor deberá:
 
 1. recopilar los `INPUT` pendientes y conservar solo el último de cada jugador;
 2. recopilar los `INTERACT` pendientes y conservar solo uno por jugador;
-3. aplicar los vectores de movimiento, normalizando los que excedan magnitud 1;
+3. aplicar la dirección de cada jugador;
 4. calcular la nueva posición de cada jugador;
 5. recortar las posiciones a los límites del mapa;
 6. resolver las interacciones en orden ascendente de `playerId`;
@@ -780,7 +807,7 @@ En cada ciclo, el servidor deberá:
 
 - El servidor será la única fuente oficial.
 - Los clientes no calcularán posiciones definitivas.
-- Los clientes solo enviarán intención de movimiento e interacción.
+- Los clientes solo enviarán dirección e interacción.
 - Todos los jugadores se evaluarán una vez por ciclo.
 - Los movimientos e interacciones de un ciclo usarán el mismo estado inicial.
 - Todos los clientes recibirán el mismo resultado.
@@ -794,19 +821,20 @@ el `GAME_STATE`. Esa predicción es opcional y nunca es autoritativa.
 
 El servidor deberá validar:
 
-- formato JSON correcto;
+- que el mensaje se decodifica sin errores;
 - tipo de mensaje conocido;
 - versión de protocolo compatible;
 - jugador registrado;
 - que el `playerId` corresponde a la conexión que envió el mensaje;
-- rango de `moveX` y `moveY`;
+- dirección dentro de las cinco válidas (§10);
 - partida en el estado correcto;
 - límites del mapa;
 - distancia para interactuar;
 - condición de robo;
 - condición de victoria.
 
-Nunca deberá confiar en posiciones enviadas por el cliente.
+Nunca deberá confiar en posiciones enviadas por el cliente. El cliente no tiene
+ningún campo de posición: solo dirección e interacción.
 
 ## 33. Mensajes mínimos obligatorios
 
@@ -820,36 +848,42 @@ Servidor hacia cliente (TCP): `JOIN_ACCEPTED`, `JOIN_REJECTED`, `LOBBY_STATE`,
 
 ## 34. Compatibilidad entre lenguajes
 
-Cada proyecto podrá usar cualquier lenguaje. Ejemplos de soporte TCP y UDP:
+Cada proyecto podrá usar cualquier lenguaje. Soporte de TCP, UDP y bytes:
 
-| Lenguaje | TCP | UDP |
-|---|---|---|
-| C# | `TcpClient` / `TcpListener` | `UdpClient` |
-| Java | `Socket` / `ServerSocket` | `DatagramSocket` |
-| Python | `socket` | `socket` con `SO_BROADCAST` |
-| C/C++ | sockets del sistema | sockets del sistema |
-| Go | `net.Dial` / `net.Listen` | `net.ListenPacket` |
-| Node.js | `net` | `dgram` |
-| Rust | `TcpStream` / `TcpListener` | `UdpSocket` |
-
-Podrán usarse librerías, siempre que la conexión final sea **TCP + UTF-8 + JSON
-por línea** para la partida y **UDP broadcast + JSON** para el descubrimiento.
+| Lenguaje | TCP | UDP | Bytes big-endian |
+|---|---|---|---|
+| C# | `TcpClient` | `UdpClient` | `BinaryPrimitives` |
+| Java | `Socket` | `DatagramSocket` | `DataInputStream` (ya es big-endian) |
+| Python | `socket` | `socket` con `SO_BROADCAST` | `struct` con formato `>` |
+| C/C++ | sockets del sistema | sockets del sistema | `htons` / `htonl` |
+| Go | `net.Dial` | `net.ListenPacket` | `encoding/binary` BigEndian |
+| Node.js | `net` | `dgram` | `Buffer.readUInt16BE` |
+| Rust | `TcpStream` | `UdpSocket` | `from_be_bytes` |
 
 ## 35. Prueba mínima de compatibilidad
 
-Antes de desarrollar el juego completo, cada proyecto deberá comprobar:
+Antes de conectar con otro proyecto, cada implementación debería verificar contra
+sí misma:
 
-1. Envío de `DISCOVER_REQUEST` por broadcast y recepción de al menos un
-   `DISCOVER_RESPONSE`.
-2. Conexión TCP al servidor descubierto.
-3. Envío de `JOIN` y recepción de `JOIN_ACCEPTED`.
-4. Recepción de `LOBBY_STATE` al entrar otro jugador.
-5. Recepción de `GAME_COUNTDOWN` y `GAME_STARTED`.
-6. Envío de `INPUT` y comprobación de que la posición cambia en el `GAME_STATE`.
-7. Envío de `INTERACT` cerca de la bandera y recepción de `FLAG_PICKED_UP`.
-8. Lectura correcta de múltiples mensajes consecutivos.
-9. Cierre correcto de la conexión y recepción de `PLAYER_DISCONNECTED` del otro
-   lado.
+1. Serializar un `INPUT` de P07 hacia arriba y comprobar que da exactamente
+   `11 03 00 07 01`. Es la prueba de oro: si estos 5 bytes no coinciden, no se
+   interopera con nadie, y se sabe sin necesidad de otro grupo.
+2. Serializar y deserializar cada mensaje y comprobar que vuelve igual.
+3. Leer un `GAME_STATE` de otro emisor y comprobar que las coordenadas tienen
+   sentido: valores como 30 000 donde esperabas 300 delatan el endianness
+   invertido.
+4. Enviar dos mensajes pegados y verificar que el receptor los separa por el
+   prefijo de longitud, no por adivinanza.
+
+Después, la prueba de extremo a extremo contra otro proyecto:
+
+5. `DISCOVER_REQUEST` por broadcast y recepción de `DISCOVER_RESPONSE`.
+6. Conexión TCP, `JOIN` y `JOIN_ACCEPTED`.
+7. `LOBBY_STATE` al entrar otro jugador.
+8. `GAME_COUNTDOWN` y `GAME_STARTED`.
+9. `INPUT` y comprobación de que la posición cambia en el `GAME_STATE`.
+10. `INTERACT` cerca de la bandera y recepción de `FLAG_PICKED_UP`.
+11. Cierre correcto y recepción de `PLAYER_DISCONNECTED` del otro lado.
 
 ## 36. Resumen técnico
 
@@ -859,13 +893,16 @@ Antes de desarrollar el juego completo, cada proyecto deberá comprobar:
 | Servidor | Único, no juega, solo muestra |
 | Descubrimiento | UDP broadcast, puerto 5001 |
 | Partida | TCP, puerto 5000 |
-| Formato | JSON, UTF-8, un mensaje por línea en TCP |
-| Terminador TCP | `\n` |
+| Formato | Binario, big-endian |
+| Enmarcado TCP | Prefijo de longitud u16 |
+| Encabezado | u8 tipo + u8 versión |
+| Versión (byte) | 3 |
 | Mapa | Plano continuo de 2000 × 2000 unidades |
 | Origen | Centro del mapa y del círculo |
 | Ejes | `x` a la derecha, `y` hacia abajo |
 | Círculo central | Radio 500 |
-| Movimiento | Libre, vector de intención de `-1` a `1` |
+| Coordenadas | Enteros, unidades × 100 |
+| Movimiento | 4 direcciones: UP, DOWN, LEFT, RIGHT |
 | Velocidad | 220 unidades por segundo |
 | Interacción | Tecla, alcance 60 unidades |
 | Inmunidad | No existe |
@@ -873,7 +910,19 @@ Antes de desarrollar el juego completo, cada proyecto deberá comprobar:
 | Jugadores | Hasta 100 |
 | Estado oficial | Servidor |
 | Lenguaje y librerías | Libres |
-| Protocolo | Versión 2.0 |
+
+## 37. Recomendación: conservar un modo de texto para depurar
+
+Depurar bytes es mucho más difícil que depurar texto. Se recomienda que cada
+implementación soporte también un transporte de texto (el JSON de la v2.0, o
+cualquier volcado legible) elegible con una bandera de arranque.
+
+Cuando dos servidores no se entienden en binario, pasarlos a texto y comparar las
+dos representaciones encuentra el problema en minutos. Sin ese modo, la única
+herramienta es un volcado hexadecimal.
+
+Los dos transportes no se mezclan en una misma conexión: se decide al abrir el
+socket, no mensaje por mensaje.
 
 Todos los proyectos deberán respetar esta especificación para garantizar que
 puedan comunicarse entre sí.
