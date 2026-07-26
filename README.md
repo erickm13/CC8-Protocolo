@@ -2,7 +2,7 @@
 
 > **Versión vigente:** `3.0.0`
 >
-> **Estado:** Abierta a cambios.
+> **Estado:** Cerrado.
 
 Cada grupo construye su propio juego de captura la bandera, con el lenguaje y la
 librería gráfica que quiera. La condición del curso es que **todas las
