@@ -1,6 +1,6 @@
 # Captura la Bandera
 
-> **Versión vigente:** `1.0.0`
+> **Versión vigente:** `3.0.0`
 >
 > **Estado:** Abierta a cambios.
 
