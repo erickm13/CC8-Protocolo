@@ -21,7 +21,7 @@ pueden corregirlo con un PR o abrír un issue.
 | 2 | Jorge Cuevas, Santiago Maldonado | JavaScript | Socket | Three.js | 
 | 3 | Emely Batres, Víctor Arias | Python | Socket | pygame |
 | 4 | Samantha Rodas, Carlos Adolfo Álvarez | Java | Socket | Swing |
-| 5 | Ricardo Caballeros, Cristian Sactic | C# | .NET | por confirmar |
+| 5 | Ricardo Caballeros, Cristian Sactic | C# | .NET | Godot |
 | 6 | Erick Mejía, José Rivera | Go | NET | Ebitengine |
 | 7 | Javier Rodas, Cristopher García | Python | Socket | pygame |
 | 8 | José España, Lester Hernández | C# | Socket | Raylib |
